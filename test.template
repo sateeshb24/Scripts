@@ -1,0 +1,225 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "ELB",
+  "Parameters": {
+    "KeyName": {
+      "Default": "UseMap",
+      "Description": "Name of an existing EC2 KeyPair to allow SSH access to the instances",
+      "Type": "String"
+    },
+    "BhnVpc": {
+      "Default": "UseMap",
+      "Description": "Id of the VPC",
+      "Type": "String"
+    },
+    "TestSubnetId1": {
+      "Description": "Subnet Id 1 in main region",
+      "Type": "String"
+    },
+    "TestSubnetId2": {
+      "Description": "Subnet Id 2 in main region",
+      "Type": "String"
+    },
+    "Environment": {
+      "Description": "environment",
+      "Type": "String"
+    },
+    "TestApiELBSecurityGroup": {
+      "Description": "elb security group",
+      "Type": "String"
+    },
+    "Shard": {
+      "Type": "String",
+      "Description": "Shard these components reside in"
+    },
+    "HealthyThreshold": {
+      "Type": "String",
+      "Description": "Specifies the number of consecutive health probe successes required before moving the instance to the Healthy state."
+    },
+    "UnhealthyThreshold": {
+      "Type": "String",
+      "Description": "Specifies the number of consecutive health probe failures required before moving the instance to the Unhealthy state."
+    },
+    "HealthCheckInterval": {
+      "Type": "String",
+      "Description": "Specifies the approximate interval, in seconds, between health checks of an individual instance."
+    },
+    "HealthCheckTimeout": {
+      "Type": "String",
+      "Description": "Specifies the amount of time, in seconds, during which no response means a failed health probe. This value must be less than the value for Interval."
+    },
+    "ConnectionDrainingEnabled": {
+      "Type": "String",
+      "Description": "Whether or not connection draining is enabled for the load balancer.",
+      "Default": "True"
+    },
+    "ConnectionDrainingPolicyTimeout": {
+      "Type": "String",
+      "Description": "The time in seconds after the load balancer closes all connections to a deregistered or unhealthy instance."
+    },
+    "Deployment": {
+      "Description": "Indicate whether this is green/blue deployment",
+      "Type": "String",
+      "Default": "Green",
+      "AllowedValues": [
+        "Green",
+        "Blue"
+      ]
+    },
+    "ChangeTicketNumber": {
+      "Type": "String",
+      "Description": "Change Ticket Number"
+    }
+  },
+  "Conditions": {
+    "AppendDeploymentCondition": {
+      "Fn::Equals": [
+        {
+          "Ref": "Deployment"
+        },
+        "Blue"
+      ]
+    }
+  },
+  "Mappings": {
+    "TestMap": {
+      "DEV": {
+        "environmentTag": "Development"
+      },
+      "CI": {
+        "environmentTag": "Development"
+      },
+      "KONE": {
+        "environmentTag": "QA"
+      },
+      "QA-M": {
+        "environmentTag": "QA"
+      },
+      "QA-R": {
+        "environmentTag": "QA"
+      },
+      "CERT": {
+        "environmentTag": "CERT"
+      },
+      "PROD": {
+        "environmentTag": "Production"
+      }
+    }
+  },
+  "Resources": {
+    "ApiElasticLoadBalancer": {
+      "Type": "AWS::ElasticLoadBalancing::LoadBalancer",
+      "Properties": {
+        "LoadBalancerName": {
+          "Fn::Join": [
+            "-",
+            [
+              "KSApiELB",
+              {
+                "Ref": "Environment"
+              },
+              {
+                "Ref": "Shard"
+              },
+              {
+                "Fn::If": [
+                  "AppendDeploymentCondition",
+                  {
+                    "Ref": "Deployment"
+                  },
+                  {
+                    "Ref": "AWS::NoValue"
+                  }
+                ]
+              }
+            ]
+          ]
+        },
+        "SecurityGroups": [
+          {
+            "Ref": "TestApiELBSecurityGroup"
+          }
+        ],
+        "Scheme": "internal",
+        "Subnets": [
+          {
+            "Ref": "TestSubnetId1"
+          },
+          {
+            "Ref": "TestSubnetId2"
+          }
+        ],
+        "Listeners": [
+          {
+            "LoadBalancerPort": "8080",
+            "InstancePort": "8080",
+            "Protocol": "HTTP"
+          },
+          {
+            "LoadBalancerPort": "443",
+            "InstancePort": "8443",
+            "Protocol": "TCP"
+          }
+        ],
+        "HealthCheck": {
+          "Target": {
+            "Fn::Join": [
+              "",
+              [
+                "HTTPS:",
+                "8443",
+                "/index.html"
+              ]
+            ]
+          },
+          "HealthyThreshold": {
+            "Ref": "HealthyThreshold"
+          },
+          "UnhealthyThreshold": {
+            "Ref": "UnhealthyThreshold"
+          },
+          "Interval": {
+            "Ref": "HealthCheckInterval"
+          },
+          "Timeout": {
+            "Ref": "HealthCheckTimeout"
+          }
+        },
+        "CrossZone": "true",
+        "ConnectionDrainingPolicy": {
+          "Enabled": {
+            "Ref": "ConnectionDrainingEnabled"
+          },
+          "Timeout": {
+            "Ref": "ConnectionDrainingPolicyTimeout"
+          }
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "ApiLoadBalancer": {
+      "Description": "Test API ELB",
+      "Value": {
+        "Ref": "ApiElasticLoadBalancer"
+      }
+    },
+    "ApiURL": {
+      "Description": "URL to access Test API services",
+      "Value": {
+        "Fn::Join": [
+          "",
+          [
+            "http://",
+            {
+              "Fn::GetAtt": [
+                "ApiElasticLoadBalancer",
+                "DNSName"
+              ]
+            }
+          ]
+        ]
+      }
+    }
+  }
+}
